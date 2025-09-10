@@ -20,7 +20,6 @@
     html,body{ margin:0; padding:0; background:var(--cp-body); color:var(--cp-text);
       font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,Helvetica,sans-serif; line-height:1.35; }
 
-    /* Banner (same as admin style) */
     .banner{
       background: linear-gradient(180deg, var(--cp-blue) 0%, var(--cp-blue-2) 100%);
       color:#fff; padding:14px 0; border-bottom:4px solid var(--cp-accent);
@@ -34,10 +33,8 @@
     .site-sub{ font-size:12px; opacity:.9; margin-top:2px; }
     .spacer{ flex:1; }
 
-    /* Page */
     .wrap{ max-width:var(--maxw); margin:18px auto 40px; padding:0 12px; }
 
-    /* Centered card */
     .card{
       margin: 0 auto; max-width:560px;
       background:#fff; border:1px solid #dfe7f1; box-shadow:0 1px 0 #ecf2f8; border-radius:var(--radius);
@@ -49,7 +46,7 @@
     .card-body{ padding:16px 14px; }
 
     label{ font-size:12px; font-weight:800; color:#3a4a56; text-transform:uppercase; letter-spacing:.2px; }
-    input[type="text"], input[type="email"], textarea{
+    input[type="text"], input[type="email"], input[type="number"], textarea{
       width:100%; padding:10px 11px; border:1px solid #cfd9e6; border-radius:6px; font-size:14px; box-sizing:border-box; background:#fff;
     }
     textarea{ min-height:120px; resize:vertical; }
@@ -63,7 +60,6 @@
     .btn-primary{ background:var(--cp-blue); color:#fff; border-color:#0b3b5c; }
     .btn-primary[disabled]{ opacity:.7; cursor:not-allowed; }
 
-    /* Flash messages */
     .flash{ margin:12px auto 0; max-width:560px; padding:10px 12px; border-radius:6px; border:1px solid #e6edf5; font-size:14px; }
     .flash.success{ background:#eaf6ee; border-color:#cfe9d6; color:#1f5e35; }
     .flash.warn{ background:#fff7e6; border-color:#ffe3a3; color:#7a4b00; }
@@ -84,11 +80,10 @@
   <!-- Banner -->
   <div class="banner">
     <div class="banner-inner">
-      <!-- Local logo -->
       <img class="site-logo" src="{{ url_for('static', filename='uploads/logo.png') }}" alt="Logo">
       <div>
         <h1 class="site-title">Contact Admin</h1>
-        <div class="site-sub">Tell us what you need — we’ll get back to you.</div>
+        <div class="site-sub">Send us your info — we’ll reply soon.</div>
       </div>
       <div class="spacer"></div>
     </div>
@@ -105,9 +100,9 @@
 
   <div class="wrap">
     <div class="card">
-      <div class="card-head">Send us a message</div>
+      <div class="card-head">Send a message</div>
       <div class="card-body">
-        <form method="post" action="{{ url_for('landing') }}" id="contactForm">
+        <form method="post" action="{{ url_for('landing') }}" id="contactForm" enctype="multipart/form-data">
           <div class="row">
             <div>
               <label for="name">Name</label><br>
@@ -119,20 +114,37 @@
             </div>
           </div>
 
-          <div class="row">
+          <div class="row" style="margin-top:10px;">
             <div>
               <label for="phone">Phone</label><br>
               <input id="phone" type="text" name="phone" placeholder="Optional">
             </div>
             <div>
-              <label for="subject">Subject</label><br>
-              <input id="subject" type="text" name="subject" placeholder="Optional">
+              <label for="price">Price</label><br>
+              <input id="price" type="number" name="price" step="0.01" placeholder="Optional">
+            </div>
+          </div>
+
+          <div class="row" style="margin-top:10px;">
+            <div>
+              <label for="year">Year</label><br>
+              <input id="year" type="text" name="year" placeholder="e.g., 2018">
+            </div>
+            <div>
+              <label for="model">Model</label><br>
+              <input id="model" type="text" name="model" placeholder="e.g., Camry">
             </div>
           </div>
 
           <div style="margin-top:10px;">
-            <label for="message">Message</label><br>
-            <textarea id="message" name="message" required></textarea>
+            <label for="description">Description</label><br>
+            <textarea id="description" name="description" required placeholder="Describe what you need or what you’re selling..."></textarea>
+          </div>
+
+          <div style="margin-top:10px;">
+            <label for="image">Upload Image</label><br>
+            <input id="image" type="file" name="image" accept="image/*">
+            <div style="font-size:12px;color:#667788;margin-top:4px;">JPG/PNG/WEBP/GIF · up to ~8MB</div>
           </div>
 
           <div class="actions">
@@ -147,7 +159,7 @@
   </div>
 
   <script>
-    // Small UX polish: disable button & show "Sending…" until server responds
+    // Simple UX: disable button & show status on submit
     const form = document.getElementById('contactForm');
     const btn  = document.getElementById('submitBtn');
     const status = document.getElementById('statusText');
@@ -155,7 +167,6 @@
     form.addEventListener('submit', function(){
       btn.disabled = true;
       status.textContent = 'Sending…';
-      setTimeout(()=>{ /* fallback in case of slow network */ }, 10);
     });
   </script>
 </body>
