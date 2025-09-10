@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Contact • Recycled Auto Parts Market</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="{{ url_for('static', filename='uploads/logo.png') }}">
+  <style>
+    :root{
+      --cp-blue:#0a3d62;
+      --cp-blue-2:#124e7e;
+      --cp-light:#eef3f8;
+      --cp-mid:#d9e3ef;
+      --cp-accent:#4e9ed4;
+      --cp-body:#f5f7fb;
+      --cp-text:#1d2a35;
+      --radius:8px;
+      --maxw:860px;
+    }
+    html,body{ margin:0; padding:0; background:var(--cp-body); color:var(--cp-text);
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,Helvetica,sans-serif; line-height:1.35; }
+
+    /* Banner (same as admin style) */
+    .banner{
+      background: linear-gradient(180deg, var(--cp-blue) 0%, var(--cp-blue-2) 100%);
+      color:#fff; padding:14px 0; border-bottom:4px solid var(--cp-accent);
+    }
+    .banner-inner{
+      max-width:var(--maxw); margin:0 auto; padding:0 12px;
+      display:flex; align-items:center; gap:12px;
+    }
+    .site-logo{ height:44px; width:auto; border-radius:6px; box-shadow:0 0 0 1px rgba(255,255,255,.12) inset; }
+    .site-title{ margin:0; font-weight:800; letter-spacing:.2px; text-transform:uppercase; font-size:22px; line-height:1.2; }
+    .site-sub{ font-size:12px; opacity:.9; margin-top:2px; }
+    .spacer{ flex:1; }
+
+    /* Page */
+    .wrap{ max-width:var(--maxw); margin:18px auto 40px; padding:0 12px; }
+
+    /* Centered card */
+    .card{
+      margin: 0 auto; max-width:560px;
+      background:#fff; border:1px solid #dfe7f1; box-shadow:0 1px 0 #ecf2f8; border-radius:var(--radius);
+    }
+    .card-head{
+      background:#f3f7fc; border-bottom:1px solid #e6edf5; padding:12px 14px; border-radius:var(--radius) var(--radius) 0 0;
+      font-weight:800; color:#2f506d; text-transform:uppercase; letter-spacing:.2px; font-size:13px;
+    }
+    .card-body{ padding:16px 14px; }
+
+    label{ font-size:12px; font-weight:800; color:#3a4a56; text-transform:uppercase; letter-spacing:.2px; }
+    input[type="text"], input[type="email"], textarea{
+      width:100%; padding:10px 11px; border:1px solid #cfd9e6; border-radius:6px; font-size:14px; box-sizing:border-box; background:#fff;
+    }
+    textarea{ min-height:120px; resize:vertical; }
+    .row{ display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    .actions{ margin-top:12px; display:flex; gap:10px; align-items:center; }
+    .btn{
+      display:inline-flex; align-items:center; justify-content:center;
+      padding:10px 14px; border-radius:6px; font-weight:700; text-decoration:none; cursor:pointer;
+      border:1px solid transparent; font-size:14px;
+    }
+    .btn-primary{ background:var(--cp-blue); color:#fff; border-color:#0b3b5c; }
+    .btn-primary[disabled]{ opacity:.7; cursor:not-allowed; }
+
+    /* Flash messages */
+    .flash{ margin:12px auto 0; max-width:560px; padding:10px 12px; border-radius:6px; border:1px solid #e6edf5; font-size:14px; }
+    .flash.success{ background:#eaf6ee; border-color:#cfe9d6; color:#1f5e35; }
+    .flash.warn{ background:#fff7e6; border-color:#ffe3a3; color:#7a4b00; }
+    .flash.error{ background:#fdecec; border-color:#f7c8c3; color:#842029; }
+
+    footer{ text-align:center; color:#587188; font-size:13px; margin-top:22px; }
+
+    @media (max-width:620px){
+      .site-title{ font-size:18px; }
+      .card-body{ padding:14px 12px; }
+      .row{ grid-template-columns: 1fr; }
+      .btn{ padding:10px 12px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Banner -->
+  <div class="banner">
+    <div class="banner-inner">
+      <!-- Local logo -->
+      <img class="site-logo" src="{{ url_for('static', filename='uploads/logo.png') }}" alt="Logo">
+      <div>
+        <h1 class="site-title">Contact Admin</h1>
+        <div class="site-sub">Tell us what you need — we’ll get back to you.</div>
+      </div>
+      <div class="spacer"></div>
+    </div>
+  </div>
+
+  <!-- Flash messages -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <div class="wrap">
+    <div class="card">
+      <div class="card-head">Send us a message</div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('landing') }}" id="contactForm">
+          <div class="row">
+            <div>
+              <label for="name">Name</label><br>
+              <input id="name" type="text" name="name" required>
+            </div>
+            <div>
+              <label for="email">Email</label><br>
+              <input id="email" type="email" name="email" required>
+            </div>
+          </div>
+
+          <div class="row">
+            <div>
+              <label for="phone">Phone</label><br>
+              <input id="phone" type="text" name="phone" placeholder="Optional">
+            </div>
+            <div>
+              <label for="subject">Subject</label><br>
+              <input id="subject" type="text" name="subject" placeholder="Optional">
+            </div>
+          </div>
+
+          <div style="margin-top:10px;">
+            <label for="message">Message</label><br>
+            <textarea id="message" name="message" required></textarea>
+          </div>
+
+          <div class="actions">
+            <button type="submit" class="btn btn-primary" id="submitBtn">Send</button>
+            <span id="statusText" style="font-size:13px; color:#667788;"></span>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <footer>© {{ 2025 }} Recycled Auto Parts Market</footer>
+  </div>
+
+  <script>
+    // Small UX polish: disable button & show "Sending…" until server responds
+    const form = document.getElementById('contactForm');
+    const btn  = document.getElementById('submitBtn');
+    const status = document.getElementById('statusText');
+
+    form.addEventListener('submit', function(){
+      btn.disabled = true;
+      status.textContent = 'Sending…';
+      setTimeout(()=>{ /* fallback in case of slow network */ }, 10);
+    });
+  </script>
+</body>
+</html>
