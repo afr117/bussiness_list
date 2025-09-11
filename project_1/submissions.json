@@ -28,5 +28,25 @@
     "model": "toyota",
     "description": "hlloooooo",
     "image_url": null
+  },
+  {
+    "name": "alfredo rosado",
+    "email": "rrcompany117@gmail.com",
+    "phone": "5664578787",
+    "price": "",
+    "year": "1988",
+    "model": "toyota",
+    "description": "this is the best website",
+    "image_url": null
+  },
+  {
+    "name": "brittney test",
+    "email": "ffcompany1234tes@gmail.com",
+    "phone": "8543455959",
+    "price": "",
+    "year": "2022",
+    "model": "tundra",
+    "description": "whole body and electric components",
+    "image_url": null
   }
 ]
