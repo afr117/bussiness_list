@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Read Aloud</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 24px auto; padding: 0 16px; }
+    textarea { width: 100%; height: 220px; }
+    select, input, button { margin: 6px 4px 12px 0; }
+  </style>
+</head>
+<body>
+  <h1>Read Aloud</h1>
+  <textarea id="text" placeholder="Paste your text here..."></textarea>
+  <div>
+    <label>Voice: <select id="voice"></select></label>
+    <label>Rate: <input id="rate" type="range" min="0.5" max="1.5" step="0.05" value="1"></label>
+    <label>Pitch: <input id="pitch" type="range" min="0" max="2" step="0.1" value="1"></label>
+  </div>
+  <button id="speak">Speak</button>
+  <button id="pause">Pause</button>
+  <button id="resume">Resume</button>
+  <button id="stop">Stop</button>
+
+  <script>
+    const synth = window.speechSynthesis;
+    const voiceSel = document.getElementById('voice');
+    const rate = document.getElementById('rate');
+    const pitch = document.getElementById('pitch');
+    const text = document.getElementById('text');
+
+    function loadVoices() {
+      const voices = synth.getVoices().filter(v => v.lang.startsWith('en') || v.default);
+      voiceSel.innerHTML = voices.map((v,i) =>
+        `<option value="${i}">${v.name} (${v.lang})${v.default ? ' — default' : ''}</option>`
+      ).join('');
+    }
+    loadVoices();
+    if (typeof speechSynthesis !== 'undefined' && speechSynthesis.onvoiceschanged !== undefined) {
+      speechSynthesis.onvoiceschanged = loadVoices;
+    }
+
+    let utter;
+    function speak() {
+      if (synth.speaking) synth.cancel();
+      utter = new SpeechSynthesisUtterance(text.value || '');
+      const voices = synth.getVoices();
+      const chosen = voices[voiceSel.value] || voices.find(v => v.default) || voices[0];
+      utter.voice = chosen;
+      utter.rate = parseFloat(rate.value);
+      utter.pitch = parseFloat(pitch.value);
+      synth.speak(utter);
+    }
+
+    document.getElementById('speak').onclick = speak;
+    document.getElementById('pause').onclick = () => synth.pause();
+    document.getElementById('resume').onclick = () => synth.resume();
+    document.getElementById('stop').onclick = () => synth.cancel();
+  </script>
+</body>
+</html>
