@@ -5,9 +5,16 @@ import os
 import numpy as np
 from PIL import Image
 import datetime
+import time
+import threading
 from camera_manager import CameraManager
 from face_recognition_engine import FaceRecognitionEngine
 from notification_service import NotificationService
+
+# Import streamlit-webrtc components
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
+import av
+import queue
 
 # Initialize session state
 if 'camera_manager' not in st.session_state:
@@ -60,6 +67,59 @@ def should_send_notification(match_name: str, camera_name: str) -> bool:
     st.session_state.last_notifications[notification_key] = current_time
     return True
 
+# WebRTC Video Transformer for face recognition
+class FaceRecognitionTransformer:
+    def __init__(self, face_engine, notification_service, camera_name):
+        self.face_engine = face_engine
+        self.notification_service = notification_service
+        self.camera_name = camera_name
+        self.last_detection_time = 0
+        self.detection_interval = 3  # Run face detection every 3 seconds
+        self.latest_matches = []
+        self.frame_count = 0
+
+    def transform(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+        current_time = time.time()
+        
+        # Increment frame counter
+        self.frame_count += 1
+        
+        # Run face detection every 3 seconds (not every frame)
+        if current_time - self.last_detection_time > self.detection_interval:
+            try:
+                matches = self.face_engine.detect_faces_in_frame(img, self.camera_name)
+                self.latest_matches = matches
+                self.last_detection_time = current_time
+                
+                # Send notifications for matches
+                for match in matches:
+                    if match['name'] != 'No Match':
+                        if should_send_notification(match['name'], self.camera_name):
+                            self.notification_service.send_notification(
+                                f"Live Stream Alert: {match['name']} detected with {match['percentage']:.1f}% confidence"
+                            )
+            except Exception as e:
+                print(f"Face detection error: {e}")
+        
+        # Draw detection overlays on the frame
+        if self.latest_matches:
+            for match in self.latest_matches:
+                if 'face_coordinates' in match:
+                    x, y, w, h = match['face_coordinates']
+                    # Draw rectangle around face
+                    color = (0, 255, 0) if match['name'] != 'No Match' else (0, 0, 255)
+                    cv2.rectangle(img, (x, y), (x + w, y + h), color, 2)
+                    
+                    # Draw label
+                    label = f"{match['name']} ({match['percentage']:.1f}%)"
+                    cv2.putText(img, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+        
+        # Add frame counter overlay
+        cv2.putText(img, f"Frame: {self.frame_count}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        
+        return av.VideoFrame.from_ndarray(img, format="bgr24")
+
 def main():
     st.set_page_config(
         page_title="Camera Monitoring System",
@@ -89,100 +149,8 @@ def main():
     elif page == "Settings":
         show_settings()
 
-def show_camera_feeds():
-    st.header("Camera Feeds Overview")
-    
-    cameras = st.session_state.camera_manager.get_cameras()
-    
-    if not cameras:
-        st.info("No cameras configured. Add cameras in Camera Management.")
-        return
-    
-    # Auto-refresh option
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.subheader(f"Active Cameras ({len(cameras)})")
-    with col2:
-        auto_refresh = st.checkbox("Auto-refresh feeds", value=False)
-        if auto_refresh:
-            import time
-            # Use controlled refresh to avoid excessive polling
-            if 'feeds_last_refresh' not in st.session_state:
-                st.session_state.feeds_last_refresh = time.time()
-            
-            # Only refresh every 5 seconds for camera feeds
-            if time.time() - st.session_state.feeds_last_refresh > 5:
-                st.session_state.feeds_last_refresh = time.time()
-                st.rerun()
-    
-    # Display camera feeds in grid
-    cols_per_row = 2
-    for i in range(0, len(cameras), cols_per_row):
-        cols = st.columns(cols_per_row)
-        
-        for j, camera in enumerate(cameras[i:i+cols_per_row]):
-            with cols[j]:
-                # Camera status check with caching
-                status = get_cached_camera_status(camera['url'])
-                
-                # Camera card
-                with st.container():
-                    # Header with status
-                    if status:
-                        st.success(f"🟢 {camera['name']}")
-                    else:
-                        st.error(f"🔴 {camera['name']}")
-                    
-                    # Camera feed thumbnail
-                    if status:
-                        frame = st.session_state.camera_manager.capture_frame(camera['url'])
-                        if frame is not None:
-                            # Resize for thumbnail
-                            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                            st.image(frame_rgb, use_column_width=True)
-                        else:
-                            st.error("Failed to capture frame")
-                    else:
-                        st.image("https://via.placeholder.com/400x300?text=Camera+Offline", use_column_width=True)
-                    
-                    # Camera info
-                    st.caption(f"Added: {camera['added_date'][:10]}")
-                    st.caption(f"URL: {camera['url'][:40]}...")
-                    
-                    # Quick action buttons
-                    button_col1, button_col2 = st.columns(2)
-                    with button_col1:
-                        if st.button("🔍 Analyze", key=f"analyze_{i}_{j}"):
-                            if status:
-                                frame = st.session_state.camera_manager.capture_frame(camera['url'])
-                                if frame is not None:
-                                    matches = st.session_state.face_engine.detect_faces_in_frame(frame, camera['name'])
-                                    if matches:
-                                        valid_matches = [m for m in matches if m['name'] != 'No Match']
-                                        if valid_matches:
-                                            st.success(f"✅ {len(valid_matches)} face(s) detected!")
-                                        else:
-                                            st.info("👤 Face detected but no matches")
-                                    else:
-                                        st.info("No faces detected")
-                                else:
-                                    st.error("Failed to capture frame")
-                            else:
-                                st.error("Camera offline")
-                    
-                    with button_col2:
-                        if st.button("🔧 Test", key=f"test_{i}_{j}"):
-                            with st.spinner("Testing connection..."):
-                                new_status = st.session_state.camera_manager.check_camera_status(camera['url'])
-                                if new_status:
-                                    st.success("✅ Connection OK")
-                                else:
-                                    st.error("❌ Connection failed")
-                    
-                    st.markdown("---")
-
 def show_dashboard():
-    st.header("Dashboard")
+    st.header("📊 Dashboard")
     
     # Real-time status refresh
     col1, col2 = st.columns([3, 1])
@@ -241,7 +209,7 @@ def show_dashboard():
         st.info("No recent detections.")
 
 def show_camera_management():
-    st.header("Camera Management")
+    st.header("⚙️ Camera Management")
     
     st.subheader("Add New Camera")
     
@@ -327,8 +295,151 @@ def show_camera_management():
     else:
         st.info("No cameras configured.")
 
+def show_camera_feeds():
+    st.header("📷 Camera Feed Snapshots")
+    
+    cameras = st.session_state.camera_manager.get_cameras()
+    
+    if not cameras:
+        st.info("No cameras configured. Add cameras in Camera Management.")
+        return
+    
+    # Feed update controls
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.subheader(f"Camera Snapshots ({len(cameras)})")
+        st.caption("This page shows snapshot previews. For live streaming, use the Live Monitoring page.")
+    with col2:
+        refresh_rate = st.selectbox("Update Rate", ["Manual only", "5 seconds", "10 seconds", "30 seconds"], index=0)
+        
+        # Handle auto-refresh based on selection
+        if refresh_rate != "Manual only":
+            import time
+            refresh_seconds = int(refresh_rate.split()[0])
+            
+            if 'feeds_last_refresh' not in st.session_state:
+                st.session_state.feeds_last_refresh = time.time()
+            
+            if time.time() - st.session_state.feeds_last_refresh > refresh_seconds:
+                st.session_state.feeds_last_refresh = time.time()
+                st.rerun()
+        
+        # Manual refresh button
+        if st.button("🔄 Update All Snapshots"):
+            st.rerun()
+    
+    # Display camera feeds as snapshots
+    for i, camera in enumerate(cameras):
+        st.subheader(f"📹 {camera['name']}")
+        
+        # Camera status check with caching
+        status = get_cached_camera_status(camera['url'])
+        
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            # Display current snapshot
+            if status:
+                frame = st.session_state.camera_manager.capture_frame(camera['url'])
+                if frame is not None:
+                    # Convert BGR to RGB for display
+                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    caption_text = f"Snapshot - {camera['name']}"
+                    if refresh_rate != "Manual only":
+                        caption_text += f" (Auto-updates every {refresh_rate.lower()})"
+                    st.image(frame_rgb, caption=caption_text, use_column_width=True)
+                    
+                    # Optional face detection (on-demand only to save CPU)
+                    with st.expander("🔍 Face Detection Analysis", expanded=False):
+                        if st.button(f"Analyze This Snapshot", key=f"analyze_{i}"):
+                            with st.spinner("Analyzing snapshot for faces..."):
+                                matches = st.session_state.face_engine.detect_faces_in_frame(frame, camera['name'])
+                                if matches:
+                                    valid_matches = [m for m in matches if m['name'] != 'No Match']
+                                    if valid_matches:
+                                        st.success(f"✅ Found {len(valid_matches)} known face(s)!")
+                                        for match in valid_matches:
+                                            st.write(f"🎯 **{match['name']}** - {match['percentage']:.1f}% confidence")
+                                    else:
+                                        st.info("👤 Face detected but no matches above threshold")
+                                else:
+                                    st.info("No faces detected in this snapshot")
+                        st.caption("💡 For continuous face recognition monitoring, use the 'Live Monitoring' page")
+                else:
+                    st.error("❌ Failed to capture frame from camera")
+            else:
+                st.error(f"❌ Camera '{camera['name']}' is offline")
+                st.image("https://via.placeholder.com/640x480?text=Camera+Offline", use_column_width=True)
+        
+        with col2:
+            # Camera status and info
+            if status:
+                st.success("🟢 Online")
+            else:
+                st.error("🔴 Offline")
+            
+            st.write(f"**Added:** {camera['added_date'][:10]}")
+            st.write(f"**URL:** {camera['url'][:25]}..." if len(camera['url']) > 25 else f"**URL:** {camera['url']}")
+            
+            # Control buttons
+            if st.button("🔧 Test Connection", key=f"test_{i}"):
+                with st.spinner("Testing..."):
+                    new_status = st.session_state.camera_manager.check_camera_status(camera['url'])
+                    if new_status:
+                        st.success("✅ Working")
+                    else:
+                        st.error("❌ Failed")
+            
+            if st.button("📷 Save Snapshot", key=f"save_{i}"):
+                if status:
+                    frame = st.session_state.camera_manager.capture_frame(camera['url'])
+                    if frame is not None:
+                        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+                        filename = f"snapshot_{camera['name'].replace(' ', '_')}_{timestamp}.jpg"
+                        filepath = os.path.join("data/detections", filename)
+                        os.makedirs("data/detections", exist_ok=True)
+                        cv2.imwrite(filepath, frame)
+                        st.success(f"Saved: {filename}")
+                    else:
+                        st.error("Capture failed")
+                else:
+                    st.error("Camera offline")
+            
+            # Link to live monitoring
+            if st.button(f"🎥 Start Live Stream", key=f"monitor_{i}", type="primary"):
+                st.info(f"Go to 'Live Monitoring' page to start live streaming (webcam mode currently available)")
+        
+        st.markdown("---")
+    
+    # Information about the two different viewing modes
+    with st.expander("📖 Camera Feeds vs Live Monitoring - What's the Difference?", expanded=False):
+        st.write("""
+        **Camera Feeds Page** (Current):
+        - Shows snapshots from all network cameras simultaneously
+        - Good for monitoring multiple cameras at once
+        - Manual or timed refresh options (5-30 seconds)
+        - Face detection analysis on-demand only (saves CPU)
+        - Lower resource usage, better for overview monitoring
+        
+        **Live Monitoring Page**:
+        - Shows continuous live video stream at 15-30 FPS
+        - Currently supports webcam streaming with WebRTC
+        - Real-time face recognition with overlay boxes
+        - Automatic notifications for face matches
+        - Best for detailed monitoring and security analysis
+        - Network camera streaming coming soon
+        
+        **Note:** For network cameras, use this page for snapshots and the Live Monitoring page will support them soon.
+        """)
+    
+    # Tips for users
+    if not st.session_state.camera_manager.get_cameras():
+        st.info("💡 **Get Started**: Add cameras in 'Camera Management', then return here to view snapshots")
+    elif not st.session_state.face_engine.get_reference_faces():
+        st.info("💡 **Enable Face Recognition**: Upload reference faces in 'Face References' to identify people in camera feeds")
+
 def show_face_references():
-    st.header("Face References")
+    st.header("👥 Face References")
     
     st.subheader("Upload Reference Face")
     uploaded_file = st.file_uploader(
@@ -377,7 +488,7 @@ def show_face_references():
         st.info("No reference faces uploaded.")
 
 def show_live_monitoring():
-    st.header("Live Monitoring")
+    st.header("🎥 Live Video Streaming with Face Recognition")
     
     cameras = st.session_state.camera_manager.get_cameras()
     reference_faces = st.session_state.face_engine.get_reference_faces()
@@ -386,161 +497,171 @@ def show_live_monitoring():
         st.warning("No cameras configured. Please add cameras first.")
         return
     
-    if not reference_faces:
-        st.warning("No reference faces uploaded. Please upload reference faces first.")
-        return
+    # Initialize session state for WebRTC
+    if 'webrtc_transformer' not in st.session_state:
+        st.session_state.webrtc_transformer = None
     
-    # Monitoring controls
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if st.button("Start Monitoring"):
-            st.session_state.monitoring_active = True
-            st.success("Monitoring started!")
+    # Streaming mode selection
+    st.subheader("Choose Streaming Source")
+    streaming_mode = st.radio(
+        "Select video source:",
+        ["📹 Use Webcam (Built-in Camera)", "🔗 Use Network Camera (Coming Soon)"],
+        help="For now, webcam streaming is available. Network camera streaming will be added soon."
+    )
     
-    with col2:
-        if st.button("Stop Monitoring"):
-            st.session_state.monitoring_active = False
-            st.info("Monitoring stopped.")
-    
-    with col3:
-        auto_refresh = st.checkbox("Auto-refresh (10s)", value=False)
-        if auto_refresh and st.session_state.monitoring_active:
-            import time
-            import threading
+    if "Webcam" in streaming_mode:
+        # WebRTC Live Streaming Section
+        st.subheader("🔴 Live Webcam Stream with Face Recognition")
+        
+        # Create face recognition transformer
+        if st.session_state.webrtc_transformer is None:
+            st.session_state.webrtc_transformer = FaceRecognitionTransformer(
+                st.session_state.face_engine,
+                st.session_state.notification_service,
+                "Webcam"
+            )
+        
+        # Configure WebRTC
+        rtc_configuration = RTCConfiguration(
+            {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+        )
+        
+        # Main streaming layout
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            # WebRTC Streamer with face recognition
+            webrtc_ctx = webrtc_streamer(
+                key="live-monitoring",
+                mode=WebRtcMode.SENDRECV,
+                rtc_configuration=rtc_configuration,
+                video_frame_callback=st.session_state.webrtc_transformer.transform,
+                media_stream_constraints={"video": True, "audio": False},
+                async_processing=True,
+            )
             
-            # Use a more controlled refresh mechanism
-            if 'last_refresh' not in st.session_state:
-                st.session_state.last_refresh = time.time()
-            
-            # Only refresh every 10 seconds
-            if time.time() - st.session_state.last_refresh > 10:
-                st.session_state.last_refresh = time.time()
-                st.rerun()
-    
-    # Camera Status Overview
-    st.subheader("Camera Status Overview")
-    status_cols = st.columns(min(len(cameras), 4))
-    
-    for i, camera in enumerate(cameras):
-        with status_cols[i % 4]:
-            status = get_cached_camera_status(camera['url'])
-            if status:
-                st.success(f"✅ {camera['name']}")
-                st.caption("Online")
+            # Stream status
+            if webrtc_ctx.state.playing:
+                st.success("🔴 LIVE - Webcam streaming active with face recognition")
+                st.caption("Face recognition analyzes frames every 3 seconds")
             else:
-                st.error(f"❌ {camera['name']}")
-                st.caption("Offline")
-    
-    if st.session_state.monitoring_active:
-        st.info("🟢 Monitoring is active")
+                st.info("▶️ Click the play button above to start live webcam streaming")
         
-        # Camera selection and live feed
-        st.subheader("Live Camera Feed")
-        selected_camera = st.selectbox("Select camera to view", [cam['name'] for cam in cameras])
-        
-        if selected_camera:
-            camera_data = next(cam for cam in cameras if cam['name'] == selected_camera)
+        with col2:
+            # Stream information and controls
+            st.subheader("📊 Stream Info")
             
-            # Check camera connection before proceeding
-            camera_online = get_cached_camera_status(camera_data['url'])
+            if webrtc_ctx.state.playing:
+                st.success("🔴 Streaming Active")
+                if st.session_state.webrtc_transformer:
+                    st.write(f"**Frames Processed:** {st.session_state.webrtc_transformer.frame_count}")
+                    st.write(f"**Face Detection:** Every 3 seconds")
+                    st.write(f"**Latest Matches:** {len(st.session_state.webrtc_transformer.latest_matches)}")
+            else:
+                st.info("⏸️ Stream Stopped")
             
-            if not camera_online:
-                st.error(f"❌ Camera '{selected_camera}' is offline. Please check the connection.")
-                return
-            
-            col1, col2 = st.columns([2, 1])
-            
-            with col1:
-                # Live feed section
-                feed_placeholder = st.empty()
-                
-                # Capture and display frame
-                frame = st.session_state.camera_manager.capture_frame(camera_data['url'])
-                if frame is not None:
-                    # Convert BGR to RGB for display
-                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    feed_placeholder.image(frame_rgb, caption=f"Live Feed - {selected_camera}", width=600)
-                    
-                    # Auto-analyze frame if monitoring is active
-                    matches = st.session_state.face_engine.detect_faces_in_frame(frame, camera_data['name'])
-                    
-                    if matches:
-                        st.subheader("🎯 Face Detection Results")
-                        for i, match in enumerate(matches):
-                            with st.expander(f"Face #{i+1} - {match['name']} ({match['percentage']:.1f}% match)", expanded=True):
-                                detection_col1, detection_col2 = st.columns([1, 2])
-                                
-                                with detection_col1:
-                                    # Show detected face if image exists
-                                    if 'image_path' in match and os.path.exists(match['image_path']):
-                                        st.image(match['image_path'], caption="Detected Face", width=150)
-                                
-                                with detection_col2:
-                                    st.write(f"**Best Match:** {match['name']}")
-                                    st.write(f"**Confidence:** {match['percentage']:.1f}%")
-                                    st.write(f"**Threshold:** {st.session_state.face_engine.settings['confidence_threshold']*100:.1f}%")
-                                    
-                                    if match['name'] != 'No Match':
-                                        # Send notification with debouncing to prevent spam
-                                        if should_send_notification(match['name'], camera_data['name']):
-                                            st.session_state.notification_service.send_notification(
-                                                f"Face Detection Alert: {match['name']} detected at {camera_data['name']} with {match['percentage']:.1f}% confidence"
-                                            )
-                                            st.success("✅ Match found - Notification sent!")
-                                        else:
-                                            st.success("✅ Match found - Recent notification already sent")
-                                    else:
-                                        st.info("ℹ️ Face detected but no match above threshold")
-                                
-                                # Show all comparison results
-                                if 'all_comparisons' in match and match['all_comparisons']:
-                                    st.write("**Comparison with all reference faces:**")
-                                    for comp in match['all_comparisons']:
-                                        confidence_color = "🟢" if comp['percentage'] >= st.session_state.face_engine.settings['confidence_threshold']*100 else "🔴"
-                                        st.write(f"{confidence_color} {comp['reference_name']}: {comp['percentage']:.1f}%")
-                    
-                else:
-                    feed_placeholder.error("❌ Failed to capture frame from camera")
-            
-            with col2:
-                st.subheader("Reference Faces")
-                # Show reference faces for comparison
+            # Reference faces
+            if reference_faces:
+                st.subheader("👥 Reference Faces")
                 for name, info in reference_faces.items():
                     if os.path.exists(info['image_path']):
-                        st.image(info['image_path'], caption=name, width=120)
+                        st.image(info['image_path'], caption=name, width=100)
                     else:
                         st.write(f"📷 {name}")
+            else:
+                st.info("No reference faces uploaded")
+            
+            # Detection settings
+            st.subheader("⚙️ Settings")
+            current_threshold = st.session_state.face_engine.settings['confidence_threshold']
+            st.write(f"**Threshold:** {current_threshold*100:.1f}%")
+            st.write(f"**Detection Interval:** 3 seconds")
+            
+            # Reset transformer button
+            if st.button("🔄 Reset Detection Counter"):
+                if st.session_state.webrtc_transformer:
+                    st.session_state.webrtc_transformer.frame_count = 0
+                    st.session_state.webrtc_transformer.latest_matches = []
+                st.success("Counter reset!")
+        
+        # Detection Results Section
+        if webrtc_ctx.state.playing and st.session_state.webrtc_transformer:
+            if st.session_state.webrtc_transformer.latest_matches:
+                st.subheader("🎯 Latest Face Detection Results")
                 
-                st.subheader("Detection Settings")
-                current_threshold = st.session_state.face_engine.settings['confidence_threshold']
-                st.write(f"**Threshold:** {current_threshold*100:.1f}%")
-                st.write(f"**Detection Method:** Template Matching")
-                st.write(f"**Active References:** {len(reference_faces)}")
-            
-            # Manual controls
-            st.subheader("Manual Controls")
-            button_col1, button_col2 = st.columns(2)
-            
-            with button_col1:
-                if st.button("🔍 Analyze Current Frame", type="primary"):
-                    st.rerun()  # This will re-run the analysis
-            
-            with button_col2:
-                if st.button("📷 Capture & Save Frame"):
-                    frame = st.session_state.camera_manager.capture_frame(camera_data['url'])
-                    if frame is not None:
-                        # Save frame with timestamp
-                        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-                        filename = f"manual_capture_{selected_camera}_{timestamp}.jpg"
-                        filepath = os.path.join("data/detections", filename)
-                        cv2.imwrite(filepath, frame)
-                        st.success(f"Frame saved: {filename}")
+                for i, match in enumerate(st.session_state.webrtc_transformer.latest_matches):
+                    with st.expander(f"Face #{i+1} - {match['name']} ({match['percentage']:.1f}% confidence)", expanded=True):
+                        detection_col1, detection_col2 = st.columns([1, 2])
+                        
+                        with detection_col1:
+                            if 'image_path' in match and os.path.exists(match['image_path']):
+                                st.image(match['image_path'], caption="Detected Face", width=150)
+                        
+                        with detection_col2:
+                            st.write(f"**Match:** {match['name']}")
+                            st.write(f"**Confidence:** {match['percentage']:.1f}%")
+                            
+                            if match['name'] != 'No Match':
+                                st.success("✅ Face recognized!")
+                            else:
+                                st.info("ℹ️ Face detected but no match above threshold")
+                            
+                            # Show all comparison results
+                            if 'all_comparisons' in match and match['all_comparisons']:
+                                st.write("**Comparison Results:**")
+                                for comp in match['all_comparisons']:
+                                    confidence_color = "🟢" if comp['percentage'] >= st.session_state.face_engine.settings['confidence_threshold']*100 else "🔴"
+                                    st.write(f"{confidence_color} **{comp['reference_name']}**: {comp['percentage']:.1f}%")
+            else:
+                st.info("👁️ Live monitoring active - No faces detected in recent frames")
     
     else:
-        st.info("🔴 Monitoring is inactive - Click 'Start Monitoring' to begin")
+        # Network camera option (coming soon)
+        st.info("🚧 Network camera streaming feature is coming soon! For now, please use the webcam option above.")
+        
+        # Show available cameras as preview
+        if cameras:
+            st.subheader("📹 Available Network Cameras (Preview)")
+            for camera in cameras:
+                with st.expander(f"📷 {camera['name']}"):
+                    status = get_cached_camera_status(camera['url'])
+                    if status:
+                        frame = st.session_state.camera_manager.capture_frame(camera['url'])
+                        if frame is not None:
+                            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                            st.image(frame_rgb, caption=f"Static preview - {camera['name']}", use_column_width=True)
+                    else:
+                        st.error(f"Camera '{camera['name']}' is offline")
+    
+    # Instructions for users
+    with st.expander("💡 How to Use Live Video Streaming", expanded=False):
+        st.write("""
+        **Live Streaming Instructions:**
+        1. Select "Use Webcam" option above
+        2. Click the ▶️ play button in the video player to start streaming
+        3. Allow camera access when prompted by your browser
+        4. Live video streams at 15-30 FPS with real-time face detection
+        5. Face recognition analyzes frames every 3 seconds automatically
+        6. Click the ⏸️ pause button to stop streaming
+        
+        **Face Recognition Features:**
+        - Green rectangles around recognized faces
+        - Red rectangles around unrecognized faces
+        - Live confidence scores displayed on video
+        - Automatic notifications for recognized individuals
+        - Detailed comparison results below the video
+        
+        **Requirements:**
+        - Modern browser with WebRTC support (Chrome, Firefox, Safari)
+        - Camera access permissions
+        - Stable internet connection
+        """)
+    
+    if not reference_faces:
+        st.info("💡 **Tip**: Upload reference faces in the 'Face References' section first to enable face recognition matching during live streaming.")
 
 def show_settings():
-    st.header("Settings")
+    st.header("⚙️ Settings")
     
     st.subheader("Email Notifications")
     
