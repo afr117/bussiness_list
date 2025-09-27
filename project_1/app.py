@@ -3,6 +3,11 @@ from email.message import EmailMessage
 from flask import Flask, render_template, request, redirect, url_for, flash
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
+from dotenv import load_dotenv
+
+# Load .env from the same folder as this file
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 # Optional: load .env if python-dotenv is installed (not required)
 try:
