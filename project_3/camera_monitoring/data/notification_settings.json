@@ -1,0 +1,8 @@
+{
+  "email_enabled": false,
+  "recipient_email": "1947chuopita@gmail.com",
+  "smtp_server": "smtp.gmail.com",
+  "smtp_port": 587,
+  "sender_email": "1947chuopita@gmail.com",
+  "sender_password": ""
+}
